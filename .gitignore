@@ -1,0 +1,7 @@
+piggy_data
+vmlinux
+vmlinux.lds
+*.o
+.*.cmd
+.*
+!.gitignore
