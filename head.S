@@ -114,7 +114,101 @@ not_angel:
 
 restart:
 
-cache_on:
+ENTRY(BS_debug)
+__armv7_mmu_cache_on:
+		mov	r1, #0x91
+
+__armv7_mmu_cache_off:
+
+__armv7_mmu_cache_flush:
+
+/*
+ * Trun on the cache. We need to setup some page tables so that we
+ * can have both the I and D caches on.
+ *
+ * We place the page tables 16K down from the kernel execution address,
+ * and we hope that nothing else is using it. If we're using it, we
+ * will go pop!
+ *
+ * On entry,
+ *  r4 = kernel execution address
+ *  r7 = architecture number
+ *  r8 = atags pointer
+ * On exit,
+ *  r0, r1, r2, r3, r9, r10, r12 corrupted
+ * This routine must preserve:
+ *  r4, r7, r8
+ */
+		.align	5
+cache_on:	mov	r3, #8			@ cache_on function
+		b	call_cache_fn
+
+#define PROC_ENTRY_SIZE (4*5)
+/*
+ * Here follow the relocatable cache support functions for the
+ * various processors. This is a generic hook for locating an
+ * entry and jumping to an instruction at the specified offset
+ * from the start of the block. Please not this is all position
+ * independent code.
+ *
+ *  r1  = corrupted
+ *  r2  = corrupted
+ *  r3  = block offset
+ *  r9  = corrupted
+ *  r12 = corrupted
+ */
+call_cache_fn:	adr	r12, proc_types
+#ifdef CONFIG_CPU_CP15
+		mrc	p15, 0, r9, c0, c0	@ get processor ID
+#endif
+1:		ldr	r1, [r12, #0]		@ get value
+		ldr	r2, [r12, #4]		@ get mask
+		eor	r1, r1, r9		@ (real ^ mask)
+		tst	r1, r2			@ 	& mask
+ ARM(		addeq	pc, r12, r3		) @ call cache function
+		add	r12, r12, #PROC_ENTRY_SIZE
+		b	1b
+
+/*
+ * Table for cache operations. This is basically:
+ *   - CPU ID match
+ *   - CPU ID mask
+ *   - 'cache on' method instruction
+ *   - 'cache off' method instruction
+ *   - 'cache flush' method instruction
+ *
+ * We match an entry using: ((real_id ^ match) & mask) == 0
+ *
+ * Writethrough caches generally only need 'on' and 'off'
+ * methods. Writeback caches _must_ have the flush method
+ * defined.
+ */
+		.align	2
+		.type	proc_types,#object
+proc_types:
+		.word	0x000f0000		@ new CPU Id
+		.word	0x000f0000
+		W(b)	__armv7_mmu_cache_on
+		W(b)	__armv7_mmu_cache_off
+		W(b)	__armv7_mmu_cache_flush
+
+		.word	0			@ unrecognised type
+		.word	0
+		mov	pc, lr
+		mov	pc, lr
+		mov	pc, lr
+
+		.size	proc_types, . - proc_types
+
+		/*
+		 * If you get a "non-constant expression in ".if" statement"
+		 * error from the assembler on this line, check that you have
+		 * not accidentally written a "b" instruction where you should
+		 * have written W(b).
+		 */
+		.if (. - proc_types) % PROC_ENTRY_SIZE != 0
+		.error "This size of one or more proc_types entries is wrong."
+		.endif
 
 		.align	2
 		.type	LC0, #object
