@@ -114,13 +114,71 @@ not_angel:
 
 restart:
 
-ENTRY(BS_debug)
+#ifdef CONFIG_CPU_DCACHE_WRITETHROUGH
+#define CB_BITS	0x08
+#else
+#define CB_BITS	0x0C
+#endif
+
+__setup_mmu:	sub	r3, r4, #16384		@ Page directory size
+		bic	r3, r3, #0xff		@ Align the pointer
+		bic	r3, r3, #0x3f00
+
+/*
+ * Initialise the page tables, turning on the cacheable and bufferable
+ * bits for the RAM area only.
+ */
+		mov	r0, r3
+		mov	r9, r0, lsr #18
+		mov	r9, r9, lsl #18		@ start of RAM
+		add	r10, r9, #0x10000000	@ a reasonable RAM size
+		mov	r1, #0x12		@ XN|U + section mapping
+		orr	r1, r1, #3 << 10	@ AP=11
+		add	r2, r3, #16384
+1:		cmp	r1, r9			@ if virt > start of RAM
+		cmphs	r10, r1			@   && end of RAM > virt
+		bic	r1, r1, #0x1c		@ clear XN|U + C + B
+		orrlo	r1, r1, #0x10		@ Set XN|U for non-RAM
+		orrhs	r1, r1, r6		@ set RAM section settings
+		str	r1, [r0], #4		@ 1:1 mapping
+		add	r1, r1, #1048576
+		teq	r0, r2
+		bne	1b
+
+/*
+ * If ever we are running from Flash, then we surely want the cache
+ * to be enabled also for our execution instance... We map 2MB of it
+ * so there is no map overlap problem for up to 1 MB compressed kernel.
+ * If the execution is in RAM then we would only be duplicating the above.
+ */
+		orr	r1, r6, #0x04
+		orr	r1, r1, #3 << 10
+		mov	r2, pc
+		mov	r2, r2, lsr #20
+		orr	r1, r1, r2, lsl #20
+		add	r0, r3, r2, lsl #2
+		str	r1, [r0], #4
+		add	r1, r1, #1048576
+		str	r1, [r0]
+		mov	pc, lr
+ENDPROC(__setup_mmu)
+
 __armv7_mmu_cache_on:
-		mov	r1, #0x91
+		mov	r12, lr
+#ifdef CONFIG_MMU
+		mrc	p15, 0, r11, c0, c1, 4	@ read ID_MMFR0
+		tst	r11, #0xf		@ VMSA
+		movne	r6, #CB_BITS | 0x2	@ !XN
+		blne	__setup_mmu
+		
+#endif
 
 __armv7_mmu_cache_off:
 
 __armv7_mmu_cache_flush:
+
+
+
 
 /*
  * Trun on the cache. We need to setup some page tables so that we
