@@ -1,7 +1,11 @@
+# Ignore file
+hyp-stub.S
 piggy_data
 vmlinux
 vmlinux.lds
 *.o
 .*.cmd
 .*
+
+# Store 
 !.gitignore
