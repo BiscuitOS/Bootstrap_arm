@@ -170,8 +170,35 @@ __armv7_mmu_cache_on:
 		tst	r11, #0xf		@ VMSA
 		movne	r6, #CB_BITS | 0x2	@ !XN
 		blne	__setup_mmu
-		
+		mov	r0, #0
+		mcr	p15, 0, r0, c7, c10, 4	@ drain write buffer
+		tst	r11, #0xf		@ VMSA
+		mcrne	p15, 0, r0, c8, c7, 0	@ flush I,D TLBs
 #endif
+		mrc	p15, 0, r0, c1, c0, 0	@ read control reg
+		bic	r0, r0, #1 << 28	@ clear SCTLR.TRE
+		orr	r0, r0, #0x5000		@ I-cache enable, RR cache replacement
+		orr	r0, r0, #0x003c		@ write buffer
+		bic	r0, r0, #2		@ A (no unaligned access fault)
+		orr	r0, r0, #1 << 22	@ U (v6 unaligned access model)
+						@ (needed for ARM1176)
+
+#ifdef CONFIG_MMU
+		mrcne	p15, 0, r6, c2, c0, 2	@ read ttb control reg
+		orrne	r0, r0, #1		@ MMU enable
+		movne	r1, #0xfffffffd		@ domain 0 = client
+		bic	r6, r6, #1 << 31	@ 32-bit translation system
+		bic	r6, r6, #(7 << 0) | (1 << 4)	@ use only ttbr0
+		mcrne	p15, 0, r3, c2, c0, 0	@ load page table pointer
+		mcrne	p15, 0, r1, c3, c0, 0	@ load domain access control
+		mcrne	p15, 0, r6, c2, c0, 2	@ load ttb control
+#endif
+		mcr	p15, 0, r0, c7, c5, 4	@ ISB
+		mcr	p15, 0, r0, c1, c0, 0	@ load control register
+		mrc	p15, 0, r0, c1, c0, 0	@ and read it back
+		mov	r0, #0
+		mcr	p15, 0, r0, c7, c5, 4	@ ISB
+		mov	pc, r12
 
 __armv7_mmu_cache_off:
 
