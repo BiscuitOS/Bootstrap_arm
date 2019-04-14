@@ -112,7 +112,108 @@ not_angel:
 		orrcc	r4, r4, #1		@ remember we skipped cache_on
 		blcs	cache_on
 
-restart:
+restart:	adr	r0, LC0
+		ldmia	r0, {r1, r2, r3, r6, r10, r11, r12}
+		ldr	sp, [r0, #28]
+
+		/*
+		 * We might be running at a different address. We need
+		 * to fix up various pointers.
+		 */
+		sub	r0, r0, r1		@ caclculate the delta offset
+		add	r6, r6, r0		@ _edata
+		add	r10, r10, r0		@ inflated kernel size location
+
+		/*
+		 * The kernel build system appends the size of the
+		 * decompressed kernel at the end of the compressed data
+		 * in little-endian form.
+		 */
+		ldrb	r9, [r10, #0]
+		ldrb	lr, [r10, #1]
+		orr	r9, r9, lr, lsl #8
+		ldrb	lr, [r10, #2]
+		ldrb	r10, [r10, #3]
+		orr	r9, r9, lr, lsl #16
+		orr	r9, r9, r10, lsl #24
+
+#ifndef CONFIG_ZBOOT_ROM
+		/* malloc space is above the relocated stack (64k max) */
+		add	sp, sp, r0
+		add	r10, sp, #0x10000
+#endif
+		mov	r5, #0			@ init dtb size to 0
+
+/*
+ * Check to see if we will overwrite ourselves.
+ *   r4  = final kernel address (possibly with LSB set)
+ *   r9  = size of decompressed image
+ *   r10 = end of this image, including bss/stack/malloc space if non XIP
+ * We basically want:
+ *   r4 - 16k page directory >= r10 -> OK
+ *   r4 + image lenght <= address of wont_overwrite -> OK
+ * Note: the possible LSB in r4 is harmless here.
+ */
+		add	r10, r10, #16384
+		cmp	r4, r10
+		bhs	wont_overwrite
+		add	r10, r4, r9
+		adr	r9, wont_overwrite
+		cmp	r10, r9
+		bls	wont_overwrite
+
+/*
+ * Relocate ourselves past the end of the decompressed kernel.
+ *   r6  = _edata
+ *   r10 = end of the decompressed kernel
+ * Because we always copy ahead, we need to do it from the end and go
+ * backward in case the source and destination overlap.
+ */
+		/*
+		 * Bump to the next 256-type boundary with the size of
+		 * the relocation code added. This avoids overwriting
+		 * ourself when the offset is small.
+		 */
+		add	r10, r10, #((reloc_code_end - restart + 256) & ~255)
+		bic	r10, r10, #255
+
+		/* Get start of code we want to copy and align it down. */
+		adr	r5, restart
+		bic	r5, r5, #31
+
+/* Relocate the hyp vertor base if necessary */
+#ifdef CONFIG_ARM_VIRT_EXT
+		mrs	r0, spsr
+		and	r0, r0, #MODE_MASK
+		cmp	r0, #HYP_MODE
+		bne	1f
+
+0:		adr	r0, 0b
+		mov	r1, r1
+
+1:
+#endif
+		sub	r9, r6, r5		@ size to copy
+		add	r9, r9, #31		@ rounded up to a multiple
+		bic	r9, r9, #31		@ ... of 32 bytes
+		add	r6, r9, r5
+		add	r9, r9, r10
+
+1:		ldmdb	r6!, {r0 - r3, r10 - r12, lr}
+		cmp	r6, r5
+		stmdb	r9!, {r0 - r3, r10 - r12, lr}
+		bhi	1b
+
+		/* Preserve offset to relocated code */
+		sub	r6, r9, r6
+
+#ifndef CONFIG_ZBOOT_ROM
+		/* cache_clean_flush may use the satck, so relocated it */
+		add	sp, sp, r6
+#endif
+
+
+wont_overwrite:
 
 #ifdef CONFIG_CPU_DCACHE_WRITETHROUGH
 #define CB_BITS	0x08
@@ -308,24 +409,9 @@ LC0:		.word	LC0			@ r1
 		.word	_end - restart + 16384 + 1024*1024
 		.size	LC0, . - LC0
 
+reloc_code_end:
 
 		.align
 		.section ".stack", "aw", %nobits
 .L_user_stack:	.space	4096
 .L_user_stack_end:
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
