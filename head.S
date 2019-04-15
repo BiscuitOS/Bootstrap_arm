@@ -212,7 +212,9 @@ restart:	adr	r0, LC0
 		add	sp, sp, r6
 #endif
 		bl	cache_clean_flush
-
+		badr	r0, restart
+		add	r0, r0, r6
+		mov	pc, r0
 
 wont_overwrite:
 
