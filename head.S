@@ -217,6 +217,81 @@ restart:	adr	r0, LC0
 		mov	pc, r0
 
 wont_overwrite:
+/*
+ * If delta is zero, we are running at the address we were linked at.
+ *   r0  = delta
+ *   r2  = BSS start
+ *   r3  = BSS end
+ *   r4  = kernel execution address (possibly with LSB set)
+ *   r5  = appended dtb size (0 if not present)
+ *   r7  = architecture ID
+ *   r8  = atags pointer
+ *   r11 = GOT start
+ *   r12 = GOT end
+ *   sp  = stack pointer
+ */
+		orrs	r1, r0, r5
+		beq	not_relocated
+
+		add	r11, r11, r0
+		add	r12, r12, r0
+
+#ifndef CONFIG_ZBOOT_ROM
+		/*
+		 * If we're running fully PIC == CONFIG_ZBOOT_ROM = n,
+		 * we need to fix up pointers into the BSS region.
+		 * Note that the stack pointer has already been fixed up.
+		 */
+		add	r2, r2, r0
+		add	r3, r3, r0
+
+		/*
+		 * Relocate all entries in the GOT table.
+		 * Bump bss entries to _edata + dtb size
+		 */
+1:		ldr	r1, [r11, #0]		@ relocate entries in the GOT
+		add	r1, r1, r0		@ This fixes up C references
+		cmp	r1, r2			@ if entry >= bss_start &&
+		cmphs	r3, r1			@       bss_end > entry
+		addhi	r1, r1, r5		@    entry += dtb size
+		str	r1, [r11], #4		@ next entry
+		cmp	r11, r12
+		blo	1b
+
+		/* bump our bss pointer too */
+		add	r2, r2, r5
+		add	r3, r3, r5
+#endif
+
+not_relocated:	mov	r0, #0
+1:		str	r0, [r2], #4
+		str	r0, [r2], #4
+		str	r0, [r2], #4
+		str	r0, [r2], #4
+		cmp	r2, r3
+		blo	1b
+
+		/*
+		 * Did we skip the cache setup earlier?
+		 * That is indicated by the LSB in r4
+		 * Do it now if so.
+		 */
+		tst	r4, #1
+		bic	r4, r4, #1
+		blne	cache_on
+
+/*
+ * The C runtime environment should now be setup sufficiently.
+ * Set up some pointers, and start decompressing.
+ *   r4  = kernel execution address
+ *   r7  = architecture ID
+ *   r8  = atags pointer
+ */
+		mov	r0, r4
+		mov	r1, sp			@ malloc space above stack
+		add	r2, sp, #0x10000	@ 64k max
+		mov	r3, r7
+
 
 #ifdef CONFIG_CPU_DCACHE_WRITETHROUGH
 #define CB_BITS	0x08
