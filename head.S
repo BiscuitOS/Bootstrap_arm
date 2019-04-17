@@ -292,6 +292,8 @@ not_relocated:	mov	r0, #0
 		add	r2, sp, #0x10000	@ 64k max
 		mov	r3, r7
 		bl	decompress_kernel
+		bl	cache_clean_flush
+		bl	cache_off
 
 
 #ifdef CONFIG_CPU_DCACHE_WRITETHROUGH
@@ -381,6 +383,21 @@ __armv7_mmu_cache_on:
 		mov	pc, r12
 
 __armv7_mmu_cache_off:
+		mrc	p15, 0, r0, c1, c0
+#ifdef CONFIG_MMU
+		bic	r0, r0, #0x000d
+#endif
+		mcr	p15, 0, r0, c1, c0	@ turn MMU and cache off
+		mov	r12, lr
+		bl	__armv7_mmu_cache_flush
+		mov	r0, #0
+#ifdef CONFIG_MMU
+		mcr	p15, 0, r0, c8, c7, 0	@ invalidate whole TLB
+#endif
+		mcr	p15, 0, r0, c7, c5, 6	@ invalidate BTC
+		mcr	p15, 0, r0, c7, c10, 4	@ DSB
+		mcr	p15, 0, r0, c7, c5, 4	@ ISB
+		mov	pc, r12
 
 /*
  * Clean and flush the cache to maintain consistency
@@ -475,6 +492,19 @@ iflush:
  */
 		.align	5
 cache_on:	mov	r3, #8			@ cache_on function
+		b	call_cache_fn
+
+/*
+ * Turn off the Cache and MMU. ARMv3 doesn't not support
+ * reading the control register, but ARMv4 does.
+ *
+ * On exit,
+ *  r0, r1, r2, r3, r9, r12 corrupted
+ * This routine must preserve:
+ *  r4, r7, r8
+ */
+		.align 5
+cache_off:	mov	r3, #12			@ cache_off function
 		b	call_cache_fn
 
 #define PROC_ENTRY_SIZE (4*5)
