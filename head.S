@@ -295,6 +295,13 @@ not_relocated:	mov	r0, #0
 		bl	cache_clean_flush
 		bl	cache_off
 
+#ifdef CONFIG_ARM_VIRT_EXT
+		mrs	r0, spsr		@ Get saved CPU boot mode
+		and	r0, r0, #MODE_MASK
+		cmp	r0, #HYP_MODE		@ if not booted in HYP mode...
+		bne	__entry_kernel
+#endif
+
 
 #ifdef CONFIG_CPU_DCACHE_WRITETHROUGH
 #define CB_BITS	0x08
@@ -586,6 +593,13 @@ LC0:		.word	LC0			@ r1
 		.word	.L_user_stack_end	@ sp
 		.word	_end - restart + 16384 + 1024*1024
 		.size	LC0, . - LC0
+
+__entry_kernel:
+		mov	r0, #0			@ must be 0
+		mov	r1, r7			@ restore architecture number
+		mov	r2, r8			@ restore atags pointer
+ ARM(		mov	pc, r4		)	@ call kernel
+		
 
 reloc_code_end:
 
