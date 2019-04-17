@@ -9,6 +9,11 @@ OBJS		=
 
 AFLAGS_head.o += -DTEXT_OFFSET=$(TEXT_OFFSET)
 HEAD	= head.o
+OBJS	+= misc.o decompress.o
+
+# string library code (-Os is enforecd to keep it much smaller)
+OBJS		+= string.o
+CFLAGS_string.o := -Os
 
 ifeq ($(CONFIG_ARM_VIRT_EXT),y)
 OBJS            += hyp-stub.o

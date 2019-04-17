@@ -291,6 +291,7 @@ not_relocated:	mov	r0, #0
 		mov	r1, sp			@ malloc space above stack
 		add	r2, sp, #0x10000	@ 64k max
 		mov	r3, r7
+		bl	decompress_kernel
 
 
 #ifdef CONFIG_CPU_DCACHE_WRITETHROUGH
